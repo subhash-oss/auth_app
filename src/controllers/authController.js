@@ -1,14 +1,16 @@
 const bcrypt = require("bcrypt");
+const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const User = require("../models/userModel");
 const { v4: uuidv4 } = require("uuid");
 const pool = require("../config/db");
-const sendVerificationEmail = require("../utils/sendEmail");
+const {sendVerificationEmail, sendResetPasswordEmail } = require("../utils/sendEmail");
+
 
 // REGISTER
 exports.register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, phone } = req.body;
 
     // 1️⃣ Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -18,10 +20,10 @@ exports.register = async (req, res) => {
 
     // 3️⃣ Save user with is_verified = false
     const result = await pool.query(
-      `INSERT INTO users (name, email, password, verification_token)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO users (name, email, password, phone,verification_token)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING id, email`,
-      [name, email, hashedPassword, verificationToken]
+      [name, email, hashedPassword, phone, verificationToken]
     );
 
     // 4️⃣ Send verification email
@@ -35,6 +37,44 @@ exports.register = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+};
+
+// FORGOT PASSWORD
+exports.forgotPassword = async (req, res) => {
+  const { email } = req.body;
+
+  const userEmail = await User.findByEmail(email);
+
+  if (userEmail.rows.length === 0) {
+    return res.status(404).json({ message: "User not found" });
+  }
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiry = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+
+  await User.saveResetToken(email, token, expiry);
+
+  await sendResetPasswordEmail(email, token);
+
+  res.json({ message: "Reset password email sent" });
+};
+
+//reset password
+exports.resetPassword = async (req, res) => {
+  const { token } = req.query;
+  const { password } = req.body;
+
+  const userReset = await User.findByResetToken(token);
+
+  if (userReset.rows.length === 0) {
+    return res.status(400).json({ message: "Invalid or expired token" });
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  await User.updatePassword(userReset.rows[0].id, hashedPassword);
+
+  res.json({ message: "Password reset successful" });
 };
 
 // EMAIL VERIFICATION

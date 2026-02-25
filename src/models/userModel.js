@@ -3,7 +3,7 @@ const pool = require("../config/db");
 // Create user
 const createUser = async (name, email, hashedPassword) => {
   const query = `
-    INSERT INTO users (name, email, password)
+    INSERT INTO users (name, email, password, phone)
     VALUES ($1, $2, $3)
     RETURNING id, name, email
   `;
@@ -30,8 +30,47 @@ const findUserById = async (id) => {
   return result.rows[0];
 };
 
+//forgot and reset password functions
+const findByEmail = (email) => {
+  return pool.query("SELECT * FROM users WHERE email = $1", [email]);
+};
+
+const saveResetToken = (email, token, expiry) => {
+  return pool.query(
+    `UPDATE users 
+     SET reset_password_token=$1, reset_password_expires=$2
+     WHERE email=$3`,
+    [token, expiry, email]
+  );
+};
+
+const findByResetToken = (token) => {
+  return pool.query(
+    `SELECT * FROM users 
+     WHERE reset_password_token=$1 
+     AND reset_password_expires > NOW()`,
+    [token]
+  );
+};
+
+const updatePassword = (id, password) => {
+  return pool.query(
+    `UPDATE users 
+     SET password=$1,
+         reset_password_token=NULL,
+         reset_password_expires=NULL
+     WHERE id=$2`,
+    [password, id]
+  );
+};
+
+
 module.exports = {
   createUser,
   findUserByEmail,
   findUserById,
+  findByEmail,
+  saveResetToken,
+  findByResetToken,
+  updatePassword,
 };
